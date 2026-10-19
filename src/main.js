@@ -214,11 +214,14 @@ ipcMain.handle("activation:request", async (_event, payload) => {
   const key = payload && typeof payload.key === "string" ? payload.key.trim() : "";
   const screenId = payload && typeof payload.screenId === "string" ? payload.screenId.trim() : "";
   if (!key || !screenId) throw new Error("Pick a screen to continue.");
+  // The customer names the player during setup; the workspace owner sees this name
+  // when approving. The PC's hostname is the fallback.
+  const deviceName = payload && typeof payload.device_name === "string" ? payload.device_name.trim() : "";
   return callFunction("activationRedeem", {
     action: "request",
     key,
     screen_id: screenId,
-    device_name: os.hostname(),
+    device_name: deviceName || os.hostname(),
     app_version: APP_VERSION,
   });
 });
