@@ -1,0 +1,43 @@
+{
+  "name": "somani-tv-player",
+  "version": "1.0.0",
+  "description": "Somani TV Windows display player",
+  "main": "src/main.js",
+  "author": "Flexa Consulting",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "44.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "uk.co.flexaconsulting.somanitv.player",
+    "productName": "Somani TV Player",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "SomaniTV-Player-Setup-${version}-x64.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
