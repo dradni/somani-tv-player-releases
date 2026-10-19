@@ -20,6 +20,7 @@
       box-sizing: border-box; width: 100%; padding: 12px; margin-top: 8px;
       border-radius: 8px; border: 1px solid #334155; background: #0b1020; color: #f8fafc;
     }
+    select option { background: #0b1020; color: #f8fafc; }
     button {
       margin-top: 16px; padding: 12px 18px; border: 0; border-radius: 8px;
       background: #7249f8; color: white; font-weight: bold; cursor: pointer; font-size: 14px;
@@ -27,9 +28,6 @@
     button[disabled] { opacity: .5; cursor: default; }
     button.link { background: none; color: #a5b4fc; padding: 0; margin-top: 12px; font-weight: normal; text-decoration: underline; }
     .row { margin-top: 16px; }
-    .screen { display: block; margin-top: 10px; padding: 12px; border: 1px solid #334155; border-radius: 8px; cursor: pointer; }
-    .screen input { width: auto; margin: 0 8px 0 0; }
-    .screen .use { color: #fca5a5; font-size: 12px; }
     #code { font-size: 30px; letter-spacing: 8px; font-weight: bold; color: #fbbf24; }
     #status { color: #fca5a5; margin-top: 8px; }
     .ok { color: #86efac; }
@@ -47,7 +45,7 @@
     </section>
 
     <section id="setup-view" class="hidden">
-      <p>Connect this player to your published Somani TV app with an activation key from your workspace owner.</p>
+      <p>Connect this player to your published Somani TV app with an activation key from your workspace owner. The screen must already exist in the portal; this player never creates screens.</p>
 
       <div class="row" id="step-url">
         <label for="url">Somani TV app URL</label>
@@ -59,14 +57,30 @@
       <div class="row hidden" id="step-key">
         <label for="key">Activation key</label>
         <input id="key" type="text" placeholder="STV-XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX" autocomplete="off" spellcheck="false">
-        <button id="key-btn">Find screens</button>
+        <button id="key-btn">Continue</button>
+      </div>
+
+      <div class="row hidden" id="step-confirm">
+        <h2>Confirm your workspace</h2>
+        <p>This key belongs to <strong id="ws-name"></strong>. Is that right?</p>
+        <button id="confirm-btn">Yes, continue</button>
+        <button class="link" id="confirm-back">No, check the key again</button>
+      </div>
+
+      <div class="row hidden" id="step-name">
+        <label for="device-name">Name this player</label>
+        <input id="device-name" type="text" autocomplete="off" spellcheck="false" maxlength="60">
+        <p>Shown to the workspace owner when they approve this player, for example "Reception display".</p>
+        <button id="name-btn">Continue</button>
       </div>
 
       <div class="row hidden" id="step-screen">
         <h2>Choose a screen</h2>
-        <div id="screens"></div>
+        <select id="screen-select">
+          <option value="" disabled selected>Choose a screen…</option>
+        </select>
         <p id="replace-note" class="hidden">This screen already has a working player. Approval will replace it.</p>
-        <button id="request-btn" disabled>Request approval</button>
+        <button id="request-btn" disabled>Activate Screen</button>
       </div>
 
       <div class="row hidden" id="step-wait">
@@ -88,6 +102,9 @@
     const show = (id) => $(id).classList.remove("hidden");
     const hide = (id) => $(id).classList.add("hidden");
     let pollTimer = null;
+    const setup = { key: "", workspace: "", screens: [], deviceName: "", hostname: "" };
+    const STEPS = ["step-url", "step-key", "step-confirm", "step-name", "step-screen", "step-wait"];
+    const goStep = (next) => { STEPS.forEach(hide); if (next) show(next); };
 
     function showPaired(screenName) {
       hide("setup-view"); show("paired-view");
@@ -97,14 +114,15 @@
     window.somaniPlayer.getState().then((state) => {
       if (state.paired) { showPaired(state.screen && state.screen.name); return; }
       show("setup-view");
-      if (state.appUrl) { $("url").value = state.appUrl; show("step-key"); }
+      setup.hostname = state.device_name || "";
+      if (state.appUrl) { $("url").value = state.appUrl; goStep("step-key"); }
     });
 
     $("url-btn").addEventListener("click", async () => {
       setError("");
       try {
         await window.somaniPlayer.saveUrl($("url").value);
-        hide("step-url"); show("step-key");
+        goStep("step-key");
       } catch (e) { setError(e.message); }
     });
 
@@ -113,41 +131,52 @@
       $("key-btn").disabled = true;
       try {
         const data = await window.somaniPlayer.listScreens($("key").value);
-        hide("step-url"); show("step-screen");
-        $("step-key").dataset.key = $("key").value.trim();
-        const box = $("screens");
-        box.innerHTML = "";
-        data.screens.forEach((s) => {
-          const label = document.createElement("label");
-          label.className = "screen";
-          const input = document.createElement("input");
-          input.type = "radio"; input.name = "screen"; input.value = s.id;
-          label.appendChild(input);
-          label.appendChild(document.createTextNode(s.name + (s.location ? " - " + s.location : "") + " "));
-          if (s.in_use) {
-            const use = document.createElement("span");
-            use.className = "use"; use.textContent = "(already has a player)";
-            label.appendChild(use);
-          }
-          input.addEventListener("change", () => {
-            $("request-btn").disabled = false;
-            $("replace-note").classList.toggle("hidden", !s.in_use);
-          });
-          box.appendChild(label);
-        });
-        if (!data.screens.length) setError("This workspace has no screens yet. Create one in the portal first.");
+        setup.key = $("key").value.trim();
+        setup.workspace = data.workspace_name || "your workspace";
+        setup.screens = data.screens || [];
+        $("ws-name").textContent = setup.workspace;
+        goStep("step-confirm");
       } catch (e) { setError(e.message); }
       $("key-btn").disabled = false;
     });
 
+    $("confirm-back").addEventListener("click", () => { setError(""); goStep("step-key"); });
+    $("confirm-btn").addEventListener("click", () => {
+      if (!$("device-name").value.trim()) $("device-name").value = setup.hostname;
+      goStep("step-name");
+    });
+
+    $("name-btn").addEventListener("click", () => {
+      const name = $("device-name").value.trim();
+      if (!name) { setError("Give this player a name so the workspace owner knows which display it is."); return; }
+      setup.deviceName = name;
+      setError("");
+      const box = $("screen-select");
+      while (box.options.length > 1) box.remove(1);
+      setup.screens.forEach((s) => {
+        const opt = document.createElement("option");
+        opt.value = s.id;
+        opt.textContent = s.name + (s.location ? " - " + s.location : "") + (s.in_use ? " (already has a player)" : "");
+        box.appendChild(opt);
+      });
+      goStep("step-screen");
+      if (!setup.screens.length) setError("This workspace has no screens yet. Create one in the portal first, then press F10 to restart setup.");
+    });
+
+    $("screen-select").addEventListener("change", () => {
+      const s = setup.screens.find((x) => x.id === $("screen-select").value);
+      $("request-btn").disabled = !s;
+      $("replace-note").classList.toggle("hidden", !(s && s.in_use));
+    });
+
     $("request-btn").addEventListener("click", async () => {
       setError("");
-      const selected = document.querySelector('input[name="screen"]:checked');
-      if (!selected) return;
+      const screenId = $("screen-select").value;
+      if (!screenId) return;
       $("request-btn").disabled = true;
       try {
-        const data = await window.somaniPlayer.requestApproval({ key: $("step-key").dataset.key, screenId: selected.value });
-        hide("step-screen"); show("step-wait");
+        const data = await window.somaniPlayer.requestApproval({ key: setup.key, screenId, device_name: setup.deviceName });
+        goStep("step-wait");
         $("code").textContent = data.verify_code || "";
         $("wait-detail").textContent = (data.replaces_existing ? "Approval replaces the current player on this screen. " : "") +
           "This request expires after 10 minutes.";
@@ -159,7 +188,8 @@
             else if (r.status === "expired") {
               clearInterval(pollTimer);
               setError("The approval request expired. Start again from the activation key.");
-              hide("step-wait"); show("step-key"); $("request-btn").disabled = true;
+              $("device-name").value = "";
+              goStep("step-key");
             }
           } catch (e) { /* keep polling; network or server hiccup */ }
         }, 5000);
