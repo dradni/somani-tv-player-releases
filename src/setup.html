@@ -1,0 +1,78 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Somani TV Player</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #0b1020;
+      color: #f8fafc;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+    main {
+      width: min(520px, calc(100% - 40px));
+      padding: 32px;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      background: #111a2d;
+      box-sizing: border-box;
+    }
+    input {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 12px;
+      margin-top: 8px;
+      border-radius: 8px;
+    }
+    button {
+      margin-top: 16px;
+      padding: 12px 18px;
+      border: 0;
+      border-radius: 8px;
+      background: #8b7cff;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    #status { color: #fca5a5; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Somani TV Player</h1>
+    <p>Connect this player to your published Somani TV app.</p>
+    <form id="form">
+      <label for="url">Somani TV app URL</label>
+      <input id="url" type="url" placeholder="https://your-published-app.example" required>
+      <p>Enter the published HTTPS URL, not a Preview link.</p>
+      <button type="submit">Connect player</button>
+      <p id="status" role="status"></p>
+    </form>
+  </main>
+  <script>
+    const form = document.getElementById("form");
+    const url = document.getElementById("url");
+    const status = document.getElementById("status");
+
+    window.somaniPlayer.getConfig().then(config => {
+      if (config.appUrl) url.value = config.appUrl;
+    });
+
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      status.textContent = "";
+      try {
+        await window.somaniPlayer.saveUrl(url.value);
+      } catch (error) {
+        status.textContent = error.message || "Could not connect.";
+      }
+    });
+  </script>
+</body>
+</html>
