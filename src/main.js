@@ -61,6 +61,26 @@ function clearStoredToken() {
   try { fs.unlinkSync(TOKEN_PATH); } catch { /* nothing stored */ }
 }
 
+// The v1.3.0 installer can leave a provision file holding the app URL and the
+// activation key it already validated. It is consumed once - merged into the
+// config, then deleted - so the key does not stay on disk in plain text.
+function consumeInstallerProvision() {
+  try {
+    const provisionPath = path.join(app.getPath("userData"), "installer-provision.json");
+    const provision = JSON.parse(fs.readFileSync(provisionPath, "utf8"));
+    fs.unlinkSync(provisionPath);
+    if (!provision || typeof provision !== "object") return;
+    const config = readConfig();
+    if (typeof provision.app_url === "string" && /^https:\/\//i.test(provision.app_url)) {
+      config.appUrl = provision.app_url.replace(/\/+$/, "");
+    }
+    if (typeof provision.key === "string" && provision.key.trim()) {
+      config.installer_key = provision.key.trim();
+    }
+    writeConfig(config);
+  } catch { /* no provision file (normal for upgrades) */ }
+}
+
 // Calls one of the published app's backend functions. The origin always comes
 // from the local config, never from the caller.
 async function callFunction(name, body) {
@@ -122,6 +142,7 @@ function showSetup() {
 }
 
 function createWindow() {
+  consumeInstallerProvision();
   win = new BrowserWindow({
     width: 1280,
     height: 720,
@@ -183,6 +204,7 @@ ipcMain.handle("player:get-state", () => {
   return {
     paired: !!readStoredToken(),
     screen: c.screen && typeof c.screen === "object" ? c.screen : null,
+    installer_key: typeof c.installer_key === "string" ? c.installer_key : "",
     appUrl: appOrigin(),
     version: APP_VERSION,
     device_name: os.hostname(),
@@ -235,7 +257,9 @@ ipcMain.handle("activation:poll", async (_event, payload) => {
   const data = await callFunction("pairingStatus", { request_id: requestId, claim_secret: claimSecret });
   if (data.status === "paired" && typeof data.device_token === "string" && data.device_token) {
     storeToken(data.device_token);
-    writeConfig({ ...readConfig(), screen: { name: data.screen_name || "" } });
+    const config = readConfig();
+    delete config.installer_key; // the key has done its job
+    writeConfig({ ...config, screen: { name: data.screen_name || "" } });
     playPaired();
   }
   return { status: data.status || "pending", screen_name: data.screen_name || "" };

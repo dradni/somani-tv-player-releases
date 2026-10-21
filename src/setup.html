@@ -57,6 +57,7 @@
       <div class="row hidden" id="step-key">
         <label for="key">Activation key</label>
         <input id="key" type="text" placeholder="STV-XXXXX-XXXXX-XXXXX-XXXXX-XXXXXX" autocomplete="off" spellcheck="false">
+        <p id="installer-note" class="ok hidden"></p>
         <button id="key-btn">Continue</button>
       </div>
 
@@ -115,7 +116,16 @@
       if (state.paired) { showPaired(state.screen && state.screen.name); return; }
       show("setup-view");
       setup.hostname = state.device_name || "";
-      if (state.appUrl) { $("url").value = state.appUrl; goStep("step-key"); }
+      if (state.installer_key) {
+        $("key").value = state.installer_key;
+        $("installer-note").textContent = "Your installer already checked this activation key.";
+        show("installer-note");
+      }
+      if (state.appUrl) {
+        $("url").value = state.appUrl;
+        goStep("step-key");
+        if (state.installer_key) $("key-btn").click(); // straight to workspace confirmation
+      }
     });
 
     $("url-btn").addEventListener("click", async () => {
