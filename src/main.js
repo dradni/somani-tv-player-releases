@@ -169,8 +169,10 @@ function createWindow() {
     } catch { /* the page navigated away; nothing to do */ }
   });
 
+  // Setup always runs in the player itself: with an app URL but no device
+  // token it goes straight to the activation-key screen, not the web pairing
+  // page (which stays reachable from setup via the pairing-code link).
   if (origin && readStoredToken()) playPaired();
-  else if (origin) showPairPage();
   else showSetup();
 
   win.on("closed", () => { win = null; });
