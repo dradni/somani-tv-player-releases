@@ -8,16 +8,17 @@
 ; player's own setup flow (workspace confirmation, naming, screen choice,
 ; owner approval) runs exactly as before.
 
-!macro customHeader
-  Var ActivationAppUrl
-  Var ActivationKey
-  Var ActivationWorkspace
-  Var ActivationDialog
-  Var ActivationUrlBox
-  Var ActivationKeyBox
-  Var ActivationMessage
-  Var ActivationSkipBox
-!macroend
+; User variables must be declared at file top level: electron-builder checks
+; for the customHeader macro BEFORE this file is included, so variables
+; declared inside that macro are never seen by the compiler.
+Var ActivationAppUrl
+Var ActivationKey
+Var ActivationWorkspace
+Var ActivationDialog
+Var ActivationUrlBox
+Var ActivationKeyBox
+Var ActivationMessage
+Var ActivationSkipBox
 
 !macro customPageAfterChangeDir
   Page custom ActivationPageShow ActivationPageLeave
