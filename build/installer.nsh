@@ -24,7 +24,12 @@
 !macroend
 
 Function ActivationPageShow
-  !insertmacro MUI_HEADER_TEXT "Activate this player" "Enter your Somani TV app URL and workspace activation key."
+  ; MUI_HEADER_TEXT is not available outside MUI page macros; set the
+  ; standard header controls directly instead.
+  GetDlgItem $0 $HWNDPARENT 1037
+  SendMessage $0 ${WM_SETTEXT} 0 "STR:Activate this player"
+  GetDlgItem $0 $HWNDPARENT 1038
+  SendMessage $0 ${WM_SETTEXT} 0 "STR:Enter your Somani TV app URL and workspace activation key."
   nsDialogs::Create 1018
   Pop $ActivationDialog
 
@@ -168,6 +173,11 @@ Function ActivationTrim
 FunctionEnd
 
 !macro customInstall
+  ; Reset the header the activation page left behind.
+  GetDlgItem $0 $HWNDPARENT 1037
+  SendMessage $0 ${WM_SETTEXT} 0 "STR:Installing Somani TV Player"
+  GetDlgItem $0 $HWNDPARENT 1038
+  SendMessage $0 ${WM_SETTEXT} 0 "STR:"
   ; Hand the validated app URL and key to the player. The workspace name is
   ; deliberately not stored: the player re-checks the key and shows the real
   ; workspace from the server.
