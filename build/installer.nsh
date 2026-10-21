@@ -10,7 +10,12 @@
 
 ; User variables must be declared at file top level: electron-builder checks
 ; for the customHeader macro BEFORE this file is included, so variables
-; declared inside that macro are never seen by the compiler.
+; declared inside that macro are never seen by the compiler. They still live
+; inside the installer-only guard below: the uninstaller pass
+; (BUILD_UNINSTALLER) never references them, and NSIS treats the resulting
+; "variable not referenced" warning as an error.
+!ifndef BUILD_UNINSTALLER
+
 Var ActivationAppUrl
 Var ActivationKey
 Var ActivationWorkspace
@@ -26,11 +31,6 @@ Var ActivationSkipBox
 !macro customPageAfterChangeDir
   Page custom ActivationPageShow ActivationPageLeave
 !macroend
-
-; The activation page only exists in the installer pass. The uninstaller pass
-; (BUILD_UNINSTALLER) never shows it, and NSIS treats the resulting
-; "function not referenced" warning as an error.
-!ifndef BUILD_UNINSTALLER
 
 Function ActivationPageShow
   ; MUI_HEADER_TEXT is not available outside MUI page macros; set the
