@@ -197,7 +197,7 @@ FunctionEnd
     Delete "$APPDATA\Somani TV Player\installer-provision.json"
     FileOpen $0 "$APPDATA\Somani TV Player\installer-provision.json" w
     ${If} $0 != ""
-      FileWrite $0 "{\"app_url\":\"$ActivationAppUrl\",\"key\":\"$ActivationKey\",\"source\":\"installer\"}"
+      FileWrite $0 "{$\"app_url$\":$\"$ActivationAppUrl$\",$\"key$\":$\"$ActivationKey$\",$\"source$\":$\"installer$\"}"
       FileClose $0
     ${EndIf}
   ${EndIf}
