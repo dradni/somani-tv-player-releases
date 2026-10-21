@@ -20,6 +20,9 @@ Var ActivationKeyBox
 Var ActivationMessage
 Var ActivationSkipBox
 
+; nsDialogs controls (NSD_CreateLabel and friends) used by the activation page.
+!include "nsDialogs.nsh"
+
 !macro customPageAfterChangeDir
   Page custom ActivationPageShow ActivationPageLeave
 !macroend
