@@ -27,6 +27,11 @@ Var ActivationSkipBox
   Page custom ActivationPageShow ActivationPageLeave
 !macroend
 
+; The activation page only exists in the installer pass. The uninstaller pass
+; (BUILD_UNINSTALLER) never shows it, and NSIS treats the resulting
+; "function not referenced" warning as an error.
+!ifndef BUILD_UNINSTALLER
+
 Function ActivationPageShow
   ; MUI_HEADER_TEXT is not available outside MUI page macros; set the
   ; standard header controls directly instead.
@@ -175,6 +180,8 @@ Function ActivationTrim
   Pop $1
   Exch $0
 FunctionEnd
+
+!endif
 
 !macro customInstall
   ; Reset the header the activation page left behind.
