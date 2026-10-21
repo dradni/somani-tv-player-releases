@@ -163,7 +163,7 @@ Function ActivationTrim
   ActivationTrimEnd:
   StrLen $1 "$0"
   ${If} $1 > 0
-    IntOp $1 "$1" "-1"
+    IntOp $1 "$1" - 1
     StrCpy $2 "$0" 1 "$1"
     ${If} $2 == " "
     ${OrIf} $2 == "$\r"
