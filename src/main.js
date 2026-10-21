@@ -115,6 +115,7 @@ function describeFunctionError(status, data) {
   if (status === 402) return "This workspace's subscription has ended. Ask your operator to renew it, then try again.";
   if (status === 409) return "This workspace is at its licensed screen limit. Remove another player or upgrade the plan.";
   if (status === 429) return "There are too many pending approvals. Ask the workspace owner to review them.";
+  if (status >= 500) return "Somani TV had a server problem (HTTP " + status + "). Try again in a minute.";
   return "Somani TV couldn't be reached. Check the app URL and try again.";
 }
 
