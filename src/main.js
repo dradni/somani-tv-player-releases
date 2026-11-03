@@ -11,15 +11,47 @@ const { app, BrowserWindow, ipcMain, safeStorage } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
+const { pathToFileURL } = require("node:url");
 
 const APP_VERSION = app.getVersion();
 const CONFIG_PATH = path.join(app.getPath("userData"), "player-config.json");
 const TOKEN_PATH = path.join(app.getPath("userData"), "device-token.bin");
 
+const SETUP_PATH = path.join(__dirname, "setup.html");
+const SETUP_URL = pathToFileURL(SETUP_PATH).href;
+
 let win = null;
-// The encrypted token file is the single source of truth. On each launch it is
-// copied into the page's storage once, so the embedded player can read it.
-let injectedThisLaunch = false;
+let setupKey = "";
+let pairingEpoch = 0;
+
+function httpsOrigin(raw) {
+  if (typeof raw !== "string") return "";
+  try {
+    const url = new URL(raw.trim());
+    return url.protocol === "https:" && !url.username && !url.password ? url.origin : "";
+  } catch {
+    return "";
+  }
+}
+
+function isPlaybackPage(raw, origin) {
+  if (!origin || httpsOrigin(raw) !== origin) return false;
+  return new URL(raw).pathname === "/play";
+}
+
+function isSetupSender(event) {
+  const contents = win?.webContents;
+  return !!contents && !contents.isDestroyed() && event.sender === contents
+    && !!event.senderFrame && event.senderFrame === contents.mainFrame
+    && event.senderFrame.url === SETUP_URL;
+}
+
+function setupHandler(channel, handler) {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!isSetupSender(event)) throw new Error("This action is only available in player setup.");
+    return handler(event, ...args);
+  });
+}
 
 function readConfig() {
   try {
@@ -36,8 +68,7 @@ function writeConfig(config) {
 }
 
 function appOrigin() {
-  const url = readConfig().appUrl;
-  return typeof url === "string" && /^https:\/\//i.test(url) ? url.replace(/\/+$/, "") : "";
+  return httpsOrigin(readConfig().appUrl);
 }
 
 function readStoredToken() {
@@ -58,27 +89,48 @@ function storeToken(token) {
 }
 
 function clearStoredToken() {
-  try { fs.unlinkSync(TOKEN_PATH); } catch { /* nothing stored */ }
+  fs.rmSync(TOKEN_PATH, { force: true });
 }
 
-// The v1.3.0 installer can leave a provision file holding the app URL and the
-// activation key it already validated. It is consumed once - merged into the
-// config, then deleted - so the key does not stay on disk in plain text.
+async function forgetLocalPairing(origin) {
+  pairingEpoch += 1;
+  setupKey = "";
+  clearStoredToken();
+  if (origin && win && !win.webContents.isDestroyed()) {
+    await win.webContents.session.clearStorageData({
+      origin,
+      storages: ["localstorage", "indexdb", "cachestorage", "serviceworkers"],
+    });
+  }
+}
+
+// Keep an installer key in memory only. Also remove keys left by 1.3.0.
 function consumeInstallerProvision() {
-  try {
-    const provisionPath = path.join(app.getPath("userData"), "installer-provision.json");
-    const provision = JSON.parse(fs.readFileSync(provisionPath, "utf8"));
-    fs.unlinkSync(provisionPath);
-    if (!provision || typeof provision !== "object") return;
-    const config = readConfig();
-    if (typeof provision.app_url === "string" && /^https:\/\//i.test(provision.app_url)) {
-      config.appUrl = provision.app_url.replace(/\/+$/, "");
-    }
-    if (typeof provision.key === "string" && provision.key.trim()) {
-      config.installer_key = provision.key.trim();
-    }
+  const config = readConfig();
+  const legacyKey = typeof config.installer_key === "string" ? config.installer_key : "";
+  if (Object.prototype.hasOwnProperty.call(config, "installer_key")) {
+    delete config.installer_key;
     writeConfig(config);
-  } catch { /* no provision file (normal for upgrades) */ }
+  }
+  const previous = httpsOrigin(config.appUrl);
+  const provisionPath = path.join(app.getPath("userData"), "installer-provision.json");
+  let raw;
+  try {
+    raw = fs.readFileSync(provisionPath, "utf8");
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    if (!readStoredToken()) setupKey = legacyKey;
+    return;
+  }
+  fs.unlinkSync(provisionPath);
+  let provision;
+  try { provision = JSON.parse(raw); } catch { return; }
+  const origin = httpsOrigin(provision?.app_url);
+  // An upgrade cannot silently redirect an existing pairing to another app.
+  // To switch apps, the operator explicitly changes the URL in local setup.
+  if (!origin || (previous && previous !== origin) || readStoredToken()) return;
+  writeConfig({ ...config, appUrl: origin });
+  if (typeof provision.key === "string") setupKey = provision.key.trim();
 }
 
 // Calls one of the published app's backend functions. The origin always comes
@@ -86,9 +138,12 @@ function consumeInstallerProvision() {
 async function callFunction(name, body) {
   const origin = appOrigin();
   if (!origin) throw new Error("Set your Somani TV app URL first.");
+  const epoch = pairingEpoch;
   let res;
   try {
     res = await fetch(origin + "/functions/" + name, {
+      redirect: "error",
+      signal: AbortSignal.timeout(15000),
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -98,6 +153,9 @@ async function callFunction(name, body) {
   }
   let data = {};
   try { data = await res.json(); } catch { /* non-JSON error body */ }
+  if (epoch !== pairingEpoch || origin !== appOrigin()) {
+    throw new Error("Player setup changed. Start activation again.");
+  }
   if (!res.ok) {
     const err = new Error(describeFunctionError(res.status, data));
     err.status = res.status;
@@ -138,12 +196,15 @@ function showPairPage() {
 function showSetup() {
   if (win) {
     win.setFullScreen(false);
-    win.loadFile(path.join(__dirname, "setup.html"));
+    win.loadFile(SETUP_PATH);
   }
 }
 
 function createWindow() {
-  consumeInstallerProvision();
+  try { consumeInstallerProvision(); } catch {
+    // Fail without exposing provision data or blocking recovery through setup.
+    setupKey = "";
+  }
   win = new BrowserWindow({
     width: 1280,
     height: 720,
@@ -159,10 +220,15 @@ function createWindow() {
   win.maximize();
 
   const origin = appOrigin();
-  // The player window may only navigate inside the configured app origin.
-  win.webContents.on("will-navigate", (event, url) => {
-    if (!origin || !url.startsWith(origin + "/")) event.preventDefault();
-  });
+  // Check the current configured origin, including server redirects from
+  // loadURL. Only main-frame redirects control the player navigation.
+  const checkNavigation = (event, url) => {
+    if (event.isMainFrame === false) return;
+    const configured = appOrigin();
+    if (!configured || httpsOrigin(event.url ?? url) !== configured) event.preventDefault();
+  };
+  win.webContents.on("will-navigate", checkNavigation);
+  win.webContents.on("will-redirect", checkNavigation);
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
   // F11 or Escape leaves/enters full screen; F10 opens the setup screen.
@@ -177,18 +243,33 @@ function createWindow() {
     }
   });
 
-  win.webContents.on("dom-ready", async () => {
-    if (injectedThisLaunch) return;
+  const contents = win.webContents;
+  let injectedToken = "";
+  let injecting = false;
+  contents.on("dom-ready", async () => {
+    const origin = appOrigin();
+    const epoch = pairingEpoch;
+    if (injecting || !isPlaybackPage(contents.getURL(), origin)) return;
     const token = readStoredToken();
-    if (!token || !appOrigin()) return;
-    injectedThisLaunch = true;
+    if (!token || token === injectedToken) return;
+    injecting = true;
     try {
-      await win.webContents.executeJavaScript(
-        'try { localStorage.setItem("somani_tv_device_token", ' + JSON.stringify(token) + '); } catch (e) {}',
-        true
-      );
-      win.webContents.reload(); // the player re-reads the token on this fresh load
-    } catch { /* the page navigated away; nothing to do */ }
+      // Re-check the document inside the injected script in case a navigation
+      // commits between the main-process check and JavaScript execution.
+      const result = await contents.mainFrame.executeJavaScript(`
+        (() => {
+          if (location.origin !== ${JSON.stringify(origin)} || location.pathname !== "/play") return "wrong_page";
+          const token = ${JSON.stringify(token)};
+          if (localStorage.getItem("somani_tv_device_token") === token) return "current";
+          localStorage.setItem("somani_tv_device_token", token);
+          return "stored";
+        })()
+      `);
+      if (contents.isDestroyed() || epoch !== pairingEpoch || !isPlaybackPage(contents.getURL(), origin)) return;
+      if (result === "current" || result === "stored") injectedToken = token;
+      if (result === "stored") contents.reload();
+    } catch { /* navigation or renderer storage failure */ }
+    finally { injecting = false; }
   });
 
   // Setup always runs in the player itself: with an app URL but no device
@@ -200,33 +281,30 @@ function createWindow() {
   win.on("closed", () => { win = null; });
 }
 
-ipcMain.handle("player:get-state", () => {
+setupHandler("player:get-state", () => {
   const c = readConfig();
   return {
     paired: !!readStoredToken(),
     screen: c.screen && typeof c.screen === "object" ? c.screen : null,
-    installer_key: typeof c.installer_key === "string" ? c.installer_key : "",
+    installer_key: setupKey,
     appUrl: appOrigin(),
     version: APP_VERSION,
     device_name: os.hostname(),
   };
 });
 
-ipcMain.handle("player:save-url", async (_event, rawUrl) => {
-  if (typeof rawUrl !== "string" || !rawUrl.trim()) throw new Error("Enter your Somani TV app URL.");
-  let parsed;
-  try { parsed = new URL(rawUrl.trim()); } catch { throw new Error("That doesn't look like a URL."); }
-  if (parsed.protocol !== "https:") throw new Error("The app URL must use HTTPS.");
-  const config = readConfig();
-  if (parsed.origin !== appOrigin()) {
-    // A new app origin invalidates any token and screen choice stored for the old one.
-    clearStoredToken();
-    writeConfig({ appUrl: parsed.origin });
+setupHandler("player:save-url", async (_event, rawUrl) => {
+  const next = httpsOrigin(rawUrl);
+  if (!next) throw new Error("Enter an HTTPS app URL without credentials.");
+  const previous = appOrigin();
+  if (next !== previous) {
+    await forgetLocalPairing(previous);
+    writeConfig({ appUrl: next });
   }
   return { ok: true };
 });
 
-ipcMain.handle("activation:list", async (_event, rawKey) => {
+setupHandler("activation:list", async (_event, rawKey) => {
   if (typeof rawKey !== "string" || !rawKey.trim()) throw new Error("Enter your activation key.");
   const data = await callFunction("activationRedeem", { action: "list", key: rawKey.trim() });
   return {
@@ -235,7 +313,7 @@ ipcMain.handle("activation:list", async (_event, rawKey) => {
   };
 });
 
-ipcMain.handle("activation:request", async (_event, payload) => {
+setupHandler("activation:request", async (_event, payload) => {
   const key = payload && typeof payload.key === "string" ? payload.key.trim() : "";
   const screenId = payload && typeof payload.screenId === "string" ? payload.screenId.trim() : "";
   if (!key || !screenId) throw new Error("Pick a screen to continue.");
@@ -251,36 +329,33 @@ ipcMain.handle("activation:request", async (_event, payload) => {
   });
 });
 
-ipcMain.handle("activation:poll", async (_event, payload) => {
+setupHandler("activation:poll", async (event, payload) => {
   const requestId = payload && typeof payload.requestId === "string" ? payload.requestId : "";
   const claimSecret = payload && typeof payload.claimSecret === "string" ? payload.claimSecret : "";
   if (!requestId || !claimSecret) return { status: "expired" };
   const data = await callFunction("pairingStatus", { request_id: requestId, claim_secret: claimSecret });
   if (data.status === "paired" && typeof data.device_token === "string" && data.device_token) {
+    if (!isSetupSender(event)) throw new Error("Return to setup and activate again.");
     storeToken(data.device_token);
-    const config = readConfig();
-    delete config.installer_key; // the key has done its job
-    writeConfig({ ...config, screen: { name: data.screen_name || "" } });
+    pairingEpoch += 1;
+    setupKey = "";
+    writeConfig({ ...readConfig(), screen: { name: data.screen_name || "" } });
     playPaired();
   }
   return { status: data.status || "pending", screen_name: data.screen_name || "" };
 });
 
-ipcMain.handle("player:unpair", () => {
-  clearStoredToken();
-  writeConfig({ appUrl: appOrigin() }); // keep the app URL, forget the screen
-  if (win) {
-    win.webContents
-      .executeJavaScript('try { localStorage.removeItem("somani_tv_device_token"); localStorage.removeItem("somani_tv_player_state"); } catch (e) {}', true)
-      .catch(() => { /* not on the app origin yet */ });
-    showSetup();
-  }
+setupHandler("player:unpair", async () => {
+  const origin = appOrigin();
+  await forgetLocalPairing(origin);
+  writeConfig({ appUrl: origin });
+  showSetup();
   return { ok: true };
 });
 
-ipcMain.handle("player:open-pair-page", () => { showPairPage(); return { ok: true }; });
-ipcMain.handle("player:show-setup", () => { showSetup(); return { ok: true }; });
-ipcMain.handle("player:reload", () => { if (win) win.webContents.reload(); return { ok: true }; });
+setupHandler("player:open-pair-page", () => { showPairPage(); return { ok: true }; });
+setupHandler("player:show-setup", () => { showSetup(); return { ok: true }; });
+setupHandler("player:reload", () => { if (win) win.webContents.reload(); return { ok: true }; });
 
 app.whenReady().then(() => {
   app.setAppUserModelId("uk.co.flexaconsulting.somanitv.player");

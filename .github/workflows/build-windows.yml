@@ -25,13 +25,28 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Run automated tests
+        run: npm test
+
       - name: Build Windows installer
         run: npm run dist:win
 
+      - name: Generate installer checksum
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem dist/SomaniTV-Player-Setup-*-x64.exe)
+          if ($installers.Count -ne 1) { throw "Expected exactly one installer" }
+          $installer = $installers[0]
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer.FullName).Hash.ToLowerInvariant()
+          "$hash  $($installer.Name)" | Set-Content -Encoding ascii -LiteralPath "$($installer.FullName).sha256"
+
       - name: Upload installer artifact
+        if: ${{ github.event.repository.private }}
         uses: actions/upload-artifact@v4
         with:
           name: SomaniTV-Player-Windows-x64
-          path: dist/SomaniTV-Player-Setup-*-x64.exe
+          path: |
+            dist/SomaniTV-Player-Setup-*-x64.exe
+            dist/SomaniTV-Player-Setup-*-x64.exe.sha256
           if-no-files-found: error
           retention-days: 14
