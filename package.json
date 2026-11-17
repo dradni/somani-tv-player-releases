@@ -1,6 +1,6 @@
 {
   "name": "somani-tv-player",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Somani TV Windows display player",
   "main": "src/main.js",
   "author": "Flexa Consulting",
