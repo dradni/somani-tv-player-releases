@@ -46,13 +46,7 @@
 
     <section id="setup-view" class="hidden">
       <p>Connect this player to your published Somani TV app with an activation key from your workspace owner. The screen must already exist in the portal; this player never creates screens.</p>
-
-      <div class="row" id="step-url">
-        <label for="url">Somani TV app URL</label>
-        <input id="url" type="url" placeholder="https://your-published-app.example" required>
-        <p>Enter the published HTTPS URL, not a Preview link.</p>
-        <button id="url-btn">Continue</button>
-      </div>
+      <p class="ok">Service: <span id="service-url">Somani TV</span></p>
 
       <div class="row hidden" id="step-key">
         <label for="key">Activation key</label>
@@ -104,7 +98,7 @@
     const hide = (id) => $(id).classList.add("hidden");
     let pollTimer = null;
     const setup = { key: "", workspace: "", screens: [], deviceName: "", hostname: "" };
-    const STEPS = ["step-url", "step-key", "step-confirm", "step-name", "step-screen", "step-wait"];
+    const STEPS = ["step-key", "step-confirm", "step-name", "step-screen", "step-wait"];
     const goStep = (next) => { STEPS.forEach(hide); if (next) show(next); };
 
     function showPaired(screenName) {
@@ -121,19 +115,9 @@
         $("installer-note").textContent = "Your installer already checked this activation key.";
         show("installer-note");
       }
-      if (state.appUrl) {
-        $("url").value = state.appUrl;
-        goStep("step-key");
-        if (state.installer_key) $("key-btn").click(); // straight to workspace confirmation
-      }
-    });
-
-    $("url-btn").addEventListener("click", async () => {
-      setError("");
-      try {
-        await window.somaniPlayer.saveUrl($("url").value);
-        goStep("step-key");
-      } catch (e) { setError(e.message); }
+      $("service-url").textContent = state.appUrl || "Somani TV";
+      goStep("step-key");
+      if (state.installer_key) $("key-btn").click(); // straight to workspace confirmation
     });
 
     $("key-btn").addEventListener("click", async () => {

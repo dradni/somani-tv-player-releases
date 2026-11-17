@@ -24,6 +24,11 @@ let win = null;
 let setupKey = "";
 let pairingEpoch = 0;
 
+// Verified production service, bundled so setup is activation only and a
+// customer is never asked for a URL. Support can still override it with the
+// setup-only player:save-url channel.
+const DEFAULT_APP_URL = "https://somanitv.co.uk";
+
 function httpsOrigin(raw) {
   if (typeof raw !== "string") return "";
   try {
@@ -68,7 +73,8 @@ function writeConfig(config) {
 }
 
 function appOrigin() {
-  return httpsOrigin(readConfig().appUrl);
+  // A saved override wins; otherwise the bundled production service is used.
+  return httpsOrigin(readConfig().appUrl) || DEFAULT_APP_URL;
 }
 
 function readStoredToken() {
